@@ -9,6 +9,10 @@ from collections import deque
 from pathlib import Path
 from utils import trays_path
 
+# FIXME(rg): wrong labels when undoing across part folders or trays
+# FIXME(rg): restoring (undoing) the last item in the category removes the category folder instead of keeping it empty
+# TODO(rg): image scaling - scale up small images somewhat and fit huge images to window size
+
 QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 trays = list(trays_path.glob('*'))
 trays.sort(reverse = True)
@@ -29,15 +33,13 @@ class MainWindow(QWidget):
         self.part_folders = []
         self.images = []
         self.current_image = None
-        self.undo_buffer = deque(maxlen=8)
+        self.undo_buffer = deque(maxlen=20)
 
         self.current_tray_label = QLabel()
         self.current_part_folder_label = QLabel()
         self.current_image_label = QLabel()
         self.current_image_image = QLabel()
         self.undo_button = QPushButton('H')
-        
-        self.setFixedSize(640, 480)
 
         layout = QHBoxLayout()
         image_layout = QVBoxLayout()
@@ -189,6 +191,7 @@ mainWindow = MainWindow()
 
 # I needed a custom window title to set up an exception in my window manager
 mainWindow.setWindowTitle('labeler')
+mainWindow.setFixedSize(800, 600)
 mainWindow.show()
 
 sys.exit(app.exec_())
