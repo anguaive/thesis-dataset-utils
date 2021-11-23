@@ -1,7 +1,7 @@
 #!/bin/python3
 
 import argparse
-from utils import confirm,  trays_path
+from utils import confirm,  get_trays_path
 from PIL import Image
 from pathlib import Path
 import sys
@@ -13,7 +13,15 @@ parser.add_argument(
         '-f', '--force',
         action='store_true',
         help='Perform actions without asking for user confirmation')
+
+parser.add_argument(
+        '-d', '--debug',
+        action='store_true',
+        help='Use the debug dataset')
+
 args = parser.parse_args()
+
+trays_path = get_trays_path(args.debug)
 
 for tray in trays_path.glob('*'):
     if not (args.force or confirm(f'About to process tray: `{tray.name}`. Continue?')):
@@ -24,7 +32,7 @@ for tray in trays_path.glob('*'):
     with open(tray / 'tray_descriptor.txt', 'r') as f:
         next(f)
         for line in f:
-            part_locations.append(list(map(int, line.split())))
+            part_locations.append(line.split())
 
     part_numbers = [row[0] for row in part_locations]
     for part_number in part_numbers:
@@ -40,10 +48,10 @@ for tray in trays_path.glob('*'):
     for image_filename in image_filenames:
         image = Image.open(image_filename)
         for part_location in part_locations:
-            left = part_location[1]
-            right = part_location[2]
-            top = part_location[3]
-            bottom = part_location[4]
+            left = int(part_location[1])
+            right = int(part_location[2])
+            top = int(part_location[3])
+            bottom = int(part_location[4])
             image_cropped = image.crop((left, top, right, bottom))
             path = tray / 'part_images' / str(part_location[0]) / image_filename.name
             image_cropped.save(path)

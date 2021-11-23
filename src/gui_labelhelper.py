@@ -5,13 +5,25 @@ from PyQt5.QtCore import Qt, pyqtSignal, QRect
 from PyQt5.QtGui import QPixmap
 import sys
 import os
+import argparse
 from collections import deque
 from pathlib import Path
-from utils import trays_path
+from utils import get_trays_path
 
 # FIXME(rg): wrong labels when undoing across part folders or trays
 # FIXME(rg): restoring (undoing) the last item in the category removes the category folder instead of keeping it empty
 # TODO(rg): image scaling - scale up small images somewhat and fit huge images to window size
+
+parser = argparse.ArgumentParser(description='GUI tool which helps manual annotation of the dataset images')
+
+parser.add_argument(
+        '-d', '--debug',
+        action='store_true',
+        help='Use the debug dataset')
+
+args = parser.parse_args()
+
+trays_path = get_trays_path(args.debug)
 
 QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 trays = list(trays_path.glob('*'))
@@ -33,7 +45,7 @@ class MainWindow(QWidget):
         self.part_folders = []
         self.images = []
         self.current_image = None
-        self.undo_buffer = deque(maxlen=20)
+        self.undo_buffer = deque(maxlen=32)
 
         self.current_tray_label = QLabel()
         self.current_part_folder_label = QLabel()
