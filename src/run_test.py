@@ -30,6 +30,7 @@ args = parser.parse_args()
 input_file = Path(args.input_file)
 if not input_file.is_file():
     print('not a file!')
+    exit(1)
 
 jobs = []
 with open(input_file, 'r') as f:

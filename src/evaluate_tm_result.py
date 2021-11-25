@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-from utils import results_path
+from utils import results_path, Result
 from matchers import tm_methods
 from matplotlib import pyplot as plt
 import numpy as np
@@ -28,14 +28,6 @@ cnt=0
 COLORS={True: '#7484ec', False: '#dc8686'}
 HATCHING={True: '', False: '.....'}
 
-class Result:
-    def __init__(self, n, p, t, state, purity):
-        self.n = n
-        self.p = p
-        self.t = t
-        self.state = state
-        self.purity = purity
-
 all_children = results_path.rglob('*')
 results_to_evaluate = [p for p in all_children if p.is_dir()
         and p.name in tm_methods]
@@ -50,8 +42,6 @@ for result in results_to_evaluate:
         cnt += 1
 
     print(f'Evaluating {result}...')
-
-
 
     is_thresholded = result.name.endswith('_NORMED')
     is_sqdiff = result.name.startswith('TM_SQDIFF')

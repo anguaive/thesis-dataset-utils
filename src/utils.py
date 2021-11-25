@@ -11,6 +11,14 @@ def get_trays_path(debug=False):
     else:
         return (Path(__file__).parents[1]  / 'debug_dataset').resolve()
 
+class Result:
+    def __init__(self, n, p, t, state, purity):
+        self.n = n
+        self.p = p
+        self.t = t
+        self.state = state
+        self.purity = purity
+
 class TemplateState(Enum):
     PRESENT = 1,
     MISSING = 2,

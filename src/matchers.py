@@ -31,7 +31,7 @@ def tm(base_path, original_input_pixmap, current_name, input_descriptor, templat
         min_val, max_val, min_loc, max_loc = cv.minMaxLoc(scoremap)
         # SQDIFF measures distance -> low value <=> good match
         # other methods measure similarity -> high value <=> good match
-        if method in [cv.TM_SQDIFF, cv.TM_SQDIFF]:
+        if method in [cv.TM_SQDIFF, cv.TM_SQDIFF_NORMED]:
             val = min_val
             loc = min_loc
         else:
