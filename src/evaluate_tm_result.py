@@ -134,6 +134,14 @@ for result in results_to_evaluate:
     else:
         ax.set_ylim((0, max(y)))
 
+
+    # Hardcoding the labels (I don't care)
+    _colors = COLORS.values()
+    _labels = ['same state as template', 'different state than template', 'dirty']
+    _handles = [plt.Rectangle((0,0),1,1, color=c) for c in _colors]
+    _handles.append(plt.Rectangle((0,0),1,1, fill=None, hatch='....'))
+    plt.legend(_handles, _labels, loc='lower right')
+
     plt.title(result.name)
     fig.set_size_inches(12, 8)
     fig.savefig(result / 'figure.png', dpi=120)

@@ -1,7 +1,7 @@
 #!/bin/python3
 
 import argparse
-from utils import confirm,  get_trays_path
+from utils import confirm, get_dataset_path
 from PIL import Image
 from pathlib import Path
 import sys
@@ -21,7 +21,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-trays_path = get_trays_path(args.debug)
+trays_path = get_dataset_path(args.debug)
 
 for tray in trays_path.glob('*'):
     if not (args.force or confirm(f'About to process tray: `{tray.name}`. Continue?')):

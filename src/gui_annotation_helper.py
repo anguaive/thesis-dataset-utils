@@ -8,7 +8,7 @@ import os
 import argparse
 from collections import deque
 from pathlib import Path
-from utils import get_trays_path
+from utils import get_dataset_path
 
 # FIXME(rg): wrong labels when undoing across part folders or trays
 # FIXME(rg): restoring (undoing) the last item in the category removes the category folder instead of keeping it empty
@@ -23,7 +23,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-trays_path = get_trays_path(args.debug)
+trays_path = get_dataset_path(args.debug)
 
 QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 trays = list(trays_path.glob('*'))

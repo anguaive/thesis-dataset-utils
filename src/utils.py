@@ -2,14 +2,65 @@ import os
 import sys
 from pathlib import Path
 from enum import Enum
+import math
+import cv2 as cv
 
-results_path = (Path(__file__).parents[1] / 'results').resolve()
+root_path = Path(__file__).parents[1]
 
-def get_trays_path(debug=False):
-    if not debug:
-        return (Path(__file__).parents[1]  / 'dataset').resolve()
-    else:
-        return (Path(__file__).parents[1]  / 'debug_dataset').resolve()
+dpath = root_path / 'dataset'
+rpath = root_path / 'results'
+epath = root_path / 'evaluations'
+
+class Job:
+    def __init__(self, name, mdefs, tdefs):
+        self.name = name
+        self.mdefs = mdefs
+        self.tdefs = tdefs
+
+    def __str__(self):
+        name = f'Name: `{self.name}`\n'
+        mdefs = 'Method definitions:\n'
+        tdefs = 'Tray definitions:\n'
+        for mdef in self.mdefs:
+            mdefs += f'{mdef}\n'
+        for tdef in self.tdefs:
+            tdefs += f'{tdef}'
+
+        return name + mdefs + tdefs
+
+class MethodDefinition:
+    def __init__(self, name, params):
+        self.name = name
+        self.params = params
+
+    def __str__(self):
+        return f'  {self.name}: {self.params}'
+
+class TrayDefinition:
+    def __init__(self, name, pdefs):
+        self.name = name
+        self.pdefs = pdefs
+
+    def __str__(self):
+        name = f'  {self.name}'
+        pdefs = ''
+        for pdef in self.pdefs:
+            pdefs += f'    {pdef}\n'
+
+        return f'{name}:\n{pdefs}'
+
+class PartDefinition:
+    def __init__(self, name, ids):
+        self.name = name
+        self.ids = ids
+
+    def __str__(self):
+        name = f'{self.name}'
+        ids = ''
+        for id in self.ids:
+            ids += id + ' '
+
+        return f'{name}: {ids}'
 
 class Result:
     def __init__(self, n, p, t, state, purity):
@@ -20,55 +71,80 @@ class Result:
         self.purity = purity
 
 class TemplateState(Enum):
-    PRESENT = 1,
-    MISSING = 2,
-    UNCERTAIN = 3
+    PRESENT = 'present'
+    MISSING = 'missing'
+    UNCERTAIN = 'uncertain' 
 
     def __str__(self):
-        if self is TemplateState.PRESENT:
-            s = 'present'
-        elif self is TemplateState.MISSING:
-            s = 'missing'
-        else:
-            s = 'uncertain'
-
-        return s.rjust(9)
+        return self.value
 
 class TemplatePurity(Enum):
-    CLEAN = 1,
-    DIRTY = 2
+    CLEAN = 'clean'
+    DIRTY = 'dirty'
 
     def __str__(self):
-        if self is TemplatePurity.CLEAN:
-            return 'clean'
-        else:
-            return 'dirty'
+        return self.value
 
-class Image():
-    def __init__(self, path, pixmap=None):
+class Image:
+    def __init__(self, path):
         self.path = path
-        self.pixmap = pixmap
+
+    def load(self, grayscale=False, scaling=None):
+        if grayscale:
+            mode = cv.IMREAD_GRAYSCALE
+        else:
+            mode = cv.IMREAD_UNCHANGED
+        self.pixmap = cv.imread(str(self.path), mode)
+        if scaling:
+            self.rescale(scaling)
+
+    def rescale(self, scaling):
+        self.pixmap = cv.resize(self.pixmap, dsize=None, fx=scaling, fy=scaling,
+                interpolation=cv.INTER_AREA)
 
     def __lt__(self, other):
         return self.path.name < other.path.name
 
 class Template(Image):
-    def __init__(self, path, pixmap=None):
-        super().__init__(path, pixmap)
-        self.purity = TemplatePurity[path.parts[-2].upper()]
-        self.state = TemplateState[path.parts[-3].upper()]
-
-    def load_image(self, scaling, grayscale=False):
-        import cv2 as cv
-        if grayscale:
-            mode = cv.IMREAD_GRAYSCALE
-        else:
-            mode = cv.IMREAD_UNCHANGED
-        image = cv.imread(str(self.path), mode)
-        self.pixmap = cv.resize(image, dsize=None, fx=scaling, fy=scaling, interpolation=cv.INTER_AREA)
+    def __init__(self, tray, part, id):
+        part_path = dpath / tray / 'part_images' / part
+        paths = part_path.rglob('*')
+        path = next((p for p in paths if p.stem == id), None)
+        super().__init__(path)
+        self.tray = tray
+        self.part = part
+        self.id = id
+        self.purity = TemplatePurity(path.parts[-2])
+        self.state = TemplateState(path.parts[-3])
 
     def __str__(self):
-        return f'{self.path.stem} {str(self.purity)} {str(self.state)}'
+        return f'{self.tray}/{self.part}/{self.id} ({self.purity}, {self.state})'
+
+def find_tdef_templates(tdef):
+    templates = []
+    for pdef in tdef.pdefs:
+        for id in pdef.ids:
+            templ = Template(tdef.name, pdef.name, id)
+            templates.append(templ)
+
+    return templates
+
+def get_tray_n(tray):
+    return len(list((dpath / tray / 'tray_images').glob('*')))
+
+def get_tray_part_names(tray):
+    return [p.stem for p in (dpath / tray / 'part_images').glob('*')]
+
+def load_tray_descriptor(tray):
+    desc = {}
+
+    with open(dpath / tray / 'tray_descriptor.txt', 'r') as f:
+        next(f)
+        for line in f:
+            part_location = line.split()
+            desc[part_location[0]] = list(map(int, part_location[1:]))
+
+    return desc
 
 def number_width(number):
     from math import log10
