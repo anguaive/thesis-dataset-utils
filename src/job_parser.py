@@ -25,8 +25,9 @@ def parse_mdefs(f):
         while line != tsep: 
             words = line.split()
             method_name = words[0]
-            method_params = eval('dict(' + ', '.join(words[1:]) + ')')
-            mdef = MethodDefinition(method_name, method_params)
+            method_params_str = ', '.join(words[1:])
+            method_params = eval('dict(' + method_params_str + ')')
+            mdef = MethodDefinition(method_name, method_params, method_params_str)
             mdefs.append(mdef)
             line = _next(f)
     except StopIteration:

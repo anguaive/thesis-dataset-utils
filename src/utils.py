@@ -11,6 +11,15 @@ dpath = root_path / 'dataset'
 rpath = root_path / 'results'
 epath = root_path / 'evaluations'
 
+class Color(Enum):
+    RED = '#dc8686'
+    GREEN = '#6ad780'
+    BLUE = '#7484ec'
+
+class Hatching(Enum):
+    NONE = ''
+    DOTTED = '.....'
+
 class Job:
     def __init__(self, name, mdefs, tdefs):
         self.name = name
@@ -29,12 +38,13 @@ class Job:
         return name + mdefs + tdefs
 
 class MethodDefinition:
-    def __init__(self, name, params):
+    def __init__(self, name, params, params_str):
         self.name = name
         self.params = params
+        self.params_str = params_str
 
     def __str__(self):
-        return f'  {self.name}: {self.params}'
+        return f'  {self.name}: {self.params} ({self.params_str})'
 
 class TrayDefinition:
     def __init__(self, name, pdefs):
@@ -61,14 +71,6 @@ class PartDefinition:
             ids += id + ' '
 
         return f'{name}: {ids}'
-
-class Result:
-    def __init__(self, n, p, t, state, purity):
-        self.n = n
-        self.p = p
-        self.t = t
-        self.state = state
-        self.purity = purity
 
 class TemplateState(Enum):
     PRESENT = 'present'
@@ -106,10 +108,7 @@ class Image:
         return self.path.name < other.path.name
 
 class Template(Image):
-    def __init__(self, tray, part, id):
-        part_path = dpath / tray / 'part_images' / part
-        paths = part_path.rglob('*')
-        path = next((p for p in paths if p.stem == id), None)
+    def __init__(self, path, tray, part, id):
         super().__init__(path)
         self.tray = tray
         self.part = part
@@ -120,11 +119,29 @@ class Template(Image):
     def __str__(self):
         return f'{self.tray}/{self.part}/{self.id} ({self.purity}, {self.state})'
 
-def find_tdef_templates(tdef):
+def find_template(tray, part, id):
+    part_path = dpath / tray / 'part_images' / part
+    paths = part_path.rglob('*')
+    path = next((p for p in paths if p.stem == id), None)
+    return Template(path, tray, part, id)
+
+def collect_all_tray_templates(tray, part):
+    templates = []
+
+    part_path = dpath / tray / 'part_images' / part
+    paths = part_path.rglob('*')
+    for path in paths:
+        if path.is_file():
+            templ = Template(path, tray, part, path.stem)
+            templates.append(templ)
+
+    return templates
+
+def collect_tdef_templates(tdef):
     templates = []
     for pdef in tdef.pdefs:
         for id in pdef.ids:
-            templ = Template(tdef.name, pdef.name, id)
+            templ = find_template(tdef.name, pdef.name, id)
             templates.append(templ)
 
     return templates
@@ -146,6 +163,13 @@ def load_tray_descriptor(tray):
 
     return desc
 
+def get_encoded_variant_name(variant, code):
+    if code:
+        return variant + '-' + code
+    else:
+        return variant
+
+# old stuff
 def number_width(number):
     from math import log10
     return int(log10(number) + 1)
