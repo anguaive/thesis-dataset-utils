@@ -5,6 +5,7 @@ from job_parser import parse_job
 from utils import collect_tdef_templates, rpath, epath, TemplateState, get_encoded_variant_name
 from algorithms import create_algorithm
 from aggregates import gen_templ_aggrs, gen_job_aggrs
+from duplex import get_duplex_pairs, gen_duplex_evals, gen_duplex_templ_aggrs
 import argparse
 
 def collect_missing_results(alg, templates, force=False):
@@ -12,7 +13,7 @@ def collect_missing_results(alg, templates, force=False):
     variants = alg.get_variants()
 
     for variant in variants:
-        v = get_encoded_variant_name(variant, alg.rcode)
+        v = get_encoded_variant_name(variant, alg.code)
 
         for t in templates:
             full_path = rpath / t.tray / t.part / t.id / v
@@ -26,7 +27,7 @@ def collect_missing_evals(alg, templates, force=False):
     variants = alg.get_variants()
 
     for variant in variants:
-        v = get_encoded_variant_name(variant, alg.ecode)
+        v = get_encoded_variant_name(variant, alg.code)
 
         for t in templates:
             if t.state is TemplateState.PRESENT:
@@ -66,10 +67,14 @@ job = parse_job(args.job)
 if not job:
     exit(1)
 
+all_pairs = {}
 all_job_templates = []
+include_duplex = False
 for tdef in job.tdefs:
     templates = collect_tdef_templates(tdef)
     all_job_templates += templates
+    pairs = get_duplex_pairs(templates)
+    all_pairs |= pairs
     missing_templ_aggrs = set([])
 
     for mdef in job.mdefs:
@@ -86,11 +91,17 @@ for tdef in job.tdefs:
             if not args.only_aggrs:
                 full_path, variant, t = m
                 alg.evaluate(full_path, variant, t)
+
+        if mdef.params.get('duplex'):
+            include_duplex = True
+            gen_duplex_evals(alg, pairs)
         
         touched_templs = set([m[2] for m in missing_evals])
         missing_templ_aggrs |= touched_templs
 
     gen_templ_aggrs(missing_templ_aggrs)
 
-gen_job_aggrs(job, all_job_templates)
-
+    if include_duplex:
+        gen_duplex_templ_aggrs(pairs)
+    
+gen_job_aggrs(job, all_job_templates, include_duplex, all_pairs)

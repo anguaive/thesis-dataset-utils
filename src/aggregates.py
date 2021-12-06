@@ -1,12 +1,13 @@
 from pathlib import Path
 import os
 from matplotlib import pyplot as plt
-from utils import TemplateState, Color, rpath, epath, get_encoded_variant_name, collect_all_tray_templates
-from algorithms import create_algorithm, Result
+from utils import TemplateState, Color, rpath, epath, get_encoded_variant_name, collect_all_tray_templates, Result
+from algorithms import create_algorithm
 import math
 import numpy as np
 
 def gen_templ_aggrs(missing_templ_aggrs):
+    print('Generating template level aggregates')
     for t in missing_templ_aggrs:
         if t.state is TemplateState('present'):
             p = 'single_present'
@@ -36,14 +37,8 @@ def gen_templ_aggrs(missing_templ_aggrs):
 
         algs.sort(key=lambda x:x[0]) 
         x = np.arange(len(algs))  
-        # ticklabels = []
-        # for a in algs:
-        #     tl = f'{a[0]}\n'
-        #     for param in a[1].split():
-        #         tl += f'{param}\n'
-        #     ticklabels.append(tl)
 
-        ticklabels = [a[0] for a in algs]
+        ticklabels = [f'{a[0]}\n{a[1]}' for a in algs]
         accs = [float(a[2]['accuracy']) for a in algs]
         times = [float(a[2]['average time']) for a in algs]
         width = 0.24
@@ -54,7 +49,7 @@ def gen_templ_aggrs(missing_templ_aggrs):
         bar_accuracy = ax.bar(x - width / 2, accs, width, label='accuracy', color=Color.GREEN.value)
         ax.set_ylabel('Accuracy')
         ax.set_xticks(x)
-        ax.set_xticklabels(ticklabels, rotation='45')
+        ax.set_xticklabels(ticklabels, rotation='75', linespacing=0.5)
         ax.bar_label(bar_accuracy, padding=3, fmt='%.2f')
 
         bar_avg_time = ax2.bar(x + width / 2, times, width, label='average time', color=Color.BLUE.value)
@@ -76,15 +71,14 @@ def gen_templ_aggrs(missing_templ_aggrs):
         fig.savefig(full_path / '_aggregates' / 'figure.png')
         plt.close(fig)
 
-def gen_job_aggr_scatter(path, algdef, templates):
+def gen_job_aggr_scatter(path, encoded, templates):
     templates = list(templates) # dict_values -> list
-    encoded = get_encoded_variant_name(algdef[0], algdef[1])
 
     total = len(templates)
     cols = min(total, 6)
     rows = math.ceil(total / cols)
     
-    fig = plt.figure(figsize=(12,8), tight_layout=True)
+    fig = plt.figure(figsize=(16,12), tight_layout=True)
     for i in range(total):
         t = templates[i]
         samples = collect_all_tray_templates(t.tray, t.part)
@@ -106,7 +100,6 @@ def gen_job_aggr_scatter(path, algdef, templates):
                 results.append(result)
 
         sample_size = len(results)
-        results.sort()
 
         x = np.arange(0, sample_size)
         y = [res.score for res in results]
@@ -122,18 +115,17 @@ def gen_job_aggr_scatter(path, algdef, templates):
         plt.title(f'{t.tray}/{t.part}', fontsize=10)
         plt.suptitle(encoded)
 
-    save_name = get_encoded_variant_name(algdef[0], algdef[2])
-    fig.savefig(path / f'{save_name}.png')
+    fig.savefig(path / f'{encoded}.png')
     plt.close(fig)
 
-def gen_job_aggr(path, algdefs, templates, title):
+def gen_job_aggr(path, encoded_variants, templates, pairs, title):
     os.makedirs(path, exist_ok=True)
 
     algs = []
-    for algdef in algdefs:
-        gen_job_aggr_scatter(path, algdef, templates)
 
-        encoded = get_encoded_variant_name(algdef[0], algdef[2])
+    # Collect single_present & single_missing
+    for encoded in encoded_variants:
+        gen_job_aggr_scatter(path, encoded, templates)
 
         total_time = 0
         total_misses = 0
@@ -161,15 +153,48 @@ def gen_job_aggr(path, algdefs, templates, title):
                         perf[key] = value
 
                 total_time += float(perf['average time'])
-                total_misses = int(perf['misses'])
-                total_sample_size = int(perf['sample size'])
+                total_misses += int(perf['misses'])
+                total_sample_size += int(perf['sample size'])
 
         total_acc = (total_sample_size - total_misses) / total_sample_size
         algs.append((name, params_str, total_acc, total_time))
 
+    # Collect duplex
+    # Contains hacky workaround for mdefs that are not parameterized as duplex...
+    if pairs:
+        for encoded in encoded_variants:
+
+            total_time = 0
+            total_misses = 0
+            total_sample_size = 0
+            for (tray, part), [present, missing] in pairs.items():
+                e = epath / tray / 'duplex' / part / f'{present.id}-{missing.id}' / encoded / 'evaluation.txt'
+                if not e.is_file():
+                    break
+
+                with open(e, 'r') as f:
+                    name = next(f)
+                    params_str = next(f)
+                    perf = {}
+                    for line in f:
+                        parts = line.partition(':')
+                        key = parts[0].strip()
+                        value = parts[2].strip()
+                        if len(key) and len(value):
+                            perf[key] = value
+
+                    total_time += float(perf['average time'])
+                    total_misses += int(perf['misses'])
+                    total_sample_size += int(perf['sample size'])
+
+            if total_sample_size == 0:
+                continue
+            total_acc = (total_sample_size - total_misses) / total_sample_size
+            algs.append((name, params_str, total_acc, total_time))
+
     algs.sort(key=lambda x:x[0])
     x = np.arange(len(algs))
-    ticklabels = [a[0] for a in algs]
+    ticklabels = [f'{a[0]}\n{a[1]}' for a in algs]
     accs = [a[2] for a in algs]
     times = [a[3] for a in algs]
     width = 0.24
@@ -180,7 +205,7 @@ def gen_job_aggr(path, algdefs, templates, title):
     bar_accuracy = ax.bar(x - width / 2, accs, width, label='accuracy', color=Color.GREEN.value)
     ax.set_ylabel('Accuracy')
     ax.set_xticks(x)
-    ax.set_xticklabels(ticklabels, rotation='45')
+    ax.set_xticklabels(ticklabels, rotation='75', linespacing=0.5)
     ax.bar_label(bar_accuracy, padding=3, fmt='%.2f')
 
     bar_avg_time = ax2.bar(x + width / 2, times, width, label='average time', color=Color.BLUE.value)
@@ -197,7 +222,8 @@ def gen_job_aggr(path, algdefs, templates, title):
     fig.savefig(path / 'figure.png')
     plt.close(fig)
     
-def gen_job_aggrs(job, templates):
+def gen_job_aggrs(job, templates, include_duplex, pairs):
+    print('Generating job level aggregates')
     os.makedirs(epath / '_aggregates' / job.name, exist_ok=True)
 
     filtered = {}
@@ -206,14 +232,21 @@ def gen_job_aggrs(job, templates):
             if t.state is not TemplateState.UNCERTAIN:
                 filtered[(t.tray, t.part)] = t
 
-    algdefs = []
+    encoded_variants = []
     for mdef in job.mdefs:
         alg = create_algorithm(mdef, None)
         for v in alg.get_variants():
-            algdefs.append((v, alg.rcode, alg.ecode))
+            encoded_variants.append(get_encoded_variant_name(v, alg.code))
 
-    gen_job_aggr(epath / '_aggregates' / job.name, algdefs, filtered.values(), 'all trays')
+    if include_duplex:
+        gen_job_aggr(epath / '_aggregates' / job.name, encoded_variants, filtered.values(), pairs, 'all trays')
+    else:
+        gen_job_aggr(epath / '_aggregates' / job.name, encoded_variants, filtered.values(), None, 'all trays')
 
     for tdef in job.tdefs:
         tdef_filtered = [v for (k, v) in filtered.items() if k[0] == tdef.name]
-        gen_job_aggr(epath / tdef.name / '_aggregates' / job.name, algdefs, tdef_filtered, tdef.name)
+        if include_duplex:
+            pairs_filtered = {k:v for (k,v) in pairs.items() if k[0] == tdef.name}
+        else:
+            pairs_filtered = None
+        gen_job_aggr(epath / tdef.name / '_aggregates' / job.name, encoded_variants, tdef_filtered, pairs_filtered, tdef.name)

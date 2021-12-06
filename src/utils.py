@@ -20,6 +20,19 @@ class Hatching(Enum):
     NONE = ''
     DOTTED = '.....'
 
+class Result:
+    def __init__(self, id, score, elapsed, state, expected_state, purity):
+         self.id = id
+         self.score = score
+         self.elapsed = elapsed
+         self.correct = state is expected_state
+         self.clean = purity is TemplatePurity.CLEAN
+         # print(f'{id} {score} {elapsed} {self.correct} {self.clean}')
+
+    def __lt__(self, other):
+        return self.score < other.score
+
+
 class Job:
     def __init__(self, name, mdefs, tdefs):
         self.name = name
@@ -91,12 +104,17 @@ class Image:
     def __init__(self, path):
         self.path = path
 
-    def load(self, grayscale=False, scaling=None):
+    def load(self, grayscale=False, scaling=None, adjust=False):
         if grayscale:
             mode = cv.IMREAD_GRAYSCALE
         else:
             mode = cv.IMREAD_UNCHANGED
+
         self.pixmap = cv.imread(str(self.path), mode)
+
+        if adjust:
+            self.pixmap = adjust_contrast_brightness(self.pixmap)
+
         if scaling:
             self.rescale(scaling)
 
@@ -168,6 +186,61 @@ def get_encoded_variant_name(variant, code):
         return variant + '-' + code
     else:
         return variant
+
+def read_results(samples, variant, template, file):
+    results = []
+    with open(file, 'r') as f:
+        for line in f:
+            words = line.split()
+            id = words[0]
+
+            state = next((s.state for s in samples if s.id == id), None)
+            if state is TemplateState.UNCERTAIN:
+                continue
+
+            purity = next((s.purity for s in samples if s.id == id), None)
+            score = float(words[1])
+            if variant == 'TM_CCOEFF_NORMED':
+                score = (score + 1) / 2 # [-1, 1] -> [0, 1]
+            elapsed = float(words[2])
+            result = Result(id, score, elapsed, state, template.state, purity)
+            results.append(result)
+
+    return results
+
+# https://stackoverflow.com/a/56909036
+def adjust_contrast_brightness(pixmap, clip_hist_percent=1):
+    # Calculate grayscale histogram
+    hist = cv.calcHist([pixmap],[0],None,[256],[0,256])
+    hist_size = len(hist)
+    
+    # Calculate cumulative distribution from the histogram
+    accumulator = []
+    accumulator.append(float(hist[0]))
+    for index in range(1, hist_size):
+        accumulator.append(accumulator[index -1] + float(hist[index]))
+    
+    # Locate points to clip
+    maximum = accumulator[-1]
+    clip_hist_percent *= (maximum/100.0)
+    clip_hist_percent /= 2.0
+    
+    # Locate left cut
+    minimum_gray = 0
+    while accumulator[minimum_gray] < clip_hist_percent:
+        minimum_gray += 1
+    
+    # Locate right cut
+    maximum_gray = hist_size -1
+    while accumulator[maximum_gray] >= (maximum - clip_hist_percent):
+        maximum_gray -= 1
+    
+    # Calculate alpha and beta values
+    alpha = 255 / (maximum_gray - minimum_gray)
+    beta = -minimum_gray * alpha
+    
+    auto_result = cv.convertScaleAbs(pixmap, alpha=alpha, beta=beta)
+    return auto_result
 
 # old stuff
 def number_width(number):

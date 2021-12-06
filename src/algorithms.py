@@ -1,20 +1,21 @@
 from pathlib import Path
 from enum import Enum
 from time import time
-from utils import dpath, rpath, Image, load_tray_descriptor, collect_all_tray_templates, Color, Hatching, TemplateState, TemplatePurity, get_encoded_variant_name
+from utils import dpath, rpath, Image, load_tray_descriptor, collect_all_tray_templates, Color, Hatching, TemplateState, TemplatePurity, get_encoded_variant_name, read_results, adjust_contrast_brightness
 import os
 import cv2 as cv
 import numpy as np
 from operator import itemgetter
 from matplotlib import pyplot as plt
 
-common_params = set(['roi', 'scaling'])
-tm_params = set(['duplex'])
-fm_params = set(['nfeatures', 'sigma', 'minmatches', 'crosscheck'])
+common_params = set(['roi', 'scaling', 'adjust'])
+tm_params = set([])
+fm_params = set(['nfeatures', 'sigma', 'crosscheck'])
 
 abbrev_table = {
     'roi': 'r',
     'scaling': 's',
+    'adjust': 'a',
     'nfeatures': 'nf',
     'nOctaveLayers': 'nol',
     'contrastThreshold': 'ct',
@@ -28,24 +29,30 @@ abbrev_table = {
     'crosscheck': 'c',
         }
 
-abbrev_table_extended = abbrev_table.copy()
-abbrev_table_extended['duplex'] = 'dp'
-abbrev_table_extended['minmatches'] = 'min'
-
 def get_param_encoding(config):
     paramlist = list(config.items())
     paramlist.sort(key=lambda x:x[0])
 
-    rcode = ''
-    ecode = ''
+    code = ''
     for key, value in paramlist:
-        abbrev = abbrev_table_extended[key]
-        val = str(round(value, 2)).replace('.', ',')
-        ecode += f'{abbrev}{val}'
         if key in abbrev_table:
-            rcode += f'{abbrev}{val}'
+            abbrev = abbrev_table[key]
+            val = str(round(value, 2)).replace('.', ',')
+            code += f'{abbrev}{val}'
 
-    return rcode, ecode
+    return code
+
+params_filter = set(['duplex'])
+
+def filter_params_str(params_str):
+    filtered = []
+
+    for word in params_str.split():
+        key = word.partition('=')[0]
+        if key not in params_filter:
+            filtered.append(word)
+
+    return ' '.join(filtered).rstrip(', ')
 
 current_tray = None
 tray_descriptor = {}
@@ -61,24 +68,13 @@ def create_algorithm(mdef, tdef):
         return FM(mdef, tdef)
     pass
 
-class Result:
-    def __init__(self, id, score, elapsed, state, expected_state, purity):
-         self.id = id
-         self.score = score
-         self.elapsed = elapsed
-         self.correct = state is expected_state
-         self.clean = purity is TemplatePurity.CLEAN
-         # print(f'{id} {score} {elapsed} {self.correct} {self.clean}')
-
-    def __lt__(self, other):
-        return self.score < other.score
-
 class Algorithm:
     def __init__(self, mdef, tdef):
-        self.roi = mdef.params.get('roi', 20)
         self.scaling = mdef.params.get('scaling', 1.0)
-        self.params_str = mdef.params_str
-        self.rcode, self.ecode = get_param_encoding(mdef.params)
+        self.roi = int(mdef.params.get('roi', 0) * self.scaling)
+        self.adjust = mdef.params.get('adjust', False)
+        self.params_str = filter_params_str(mdef.params_str)
+        self.code = get_param_encoding(mdef.params)
         if tdef:
             self.load_tray(tdef.name)
 
@@ -121,7 +117,7 @@ class Algorithm:
         self.samples = collect_all_tray_templates(template.tray, template.part)
         self.samples.sort()
 
-        v = get_encoded_variant_name(variant, self.rcode)
+        v = get_encoded_variant_name(variant, self.code)
 
         self.results_file = rpath / template.tray / template.part / template.id / v / 'results.txt'
         if not self.results_file.is_file():
@@ -157,7 +153,7 @@ class TM(Algorithm):
         except FileExistsError:
             pass
 
-        template.load(grayscale=True, scaling=self.scaling)
+        template.load(grayscale=True, scaling=self.scaling, adjust=self.adjust)
 
         method = eval('cv.' + variant)
         tw, th = template.pixmap.shape[::-1]
@@ -173,13 +169,8 @@ class TM(Algorithm):
 
             outline_pixmap = cropped_pixmap.copy()
             scene = cv.cvtColor(cropped_pixmap, cv.COLOR_RGB2GRAY)
-
-            # print(variant)
-            # print(template.path)
-            # print('\ttray:' + str(tray_image.pixmap.shape))
-            # print('\tscene:' + str(scene.shape))
-            # print('\ttempl:' + str(template.pixmap.shape))
-            # print('\t' + str(top), left, w, h, self.roi)
+            if self.adjust:
+                scene = adjust_contrast_brightness(scene)
 
             t0 = time()
             scoremap = cv.matchTemplate(scene, template.pixmap, method)
@@ -197,7 +188,7 @@ class TM(Algorithm):
                 loc = max_loc
 
             loc_br = (loc[0] + tw, loc[1] + th)
-            cv.rectangle(outline_pixmap, loc, loc_br, (0, 255, 0), 4)
+            cv.rectangle(outline_pixmap, loc, loc_br, (0, 255, 0), 1)
 
             # The matrix returned by matchTemplate contains single-channel 32-bit
             # floats; we use minmax normalization so the highest value becomes 1
@@ -213,34 +204,15 @@ class TM(Algorithm):
 
     def evaluate(self, full_path, variant, template):
         super().evaluate(full_path, variant, template)
-        results = []
-        total_elapsed = 0
         is_normed = variant in TM.normed_methods
         is_sqdiff = variant in ['TM_SQDIFF', 'TM_SQDIFF_NORMED']
         is_ccoeff_normed = variant == 'TM_CCOEFF_NORMED'
 
-        with open(self.results_file, 'r') as f:
-            for line in f:
-                words = line.split()
-                id = words[0]
-
-                state = next((s.state for s in self.samples if s.id == id), None)
-                if state is TemplateState.UNCERTAIN:
-                    continue
-
-                purity = next((s.purity for s in self.samples if s.id == id), None)
-                score = float(words[1])
-                if is_ccoeff_normed:
-                    score = (score + 1) / 2 # [-1, 1] -> [0, 1]
-                elapsed = float(words[2])
-                total_elapsed += elapsed
-                result = Result(id, score, elapsed, state, template.state, purity)
-                results.append(result)
-
-        sample_size = len(results)
+        results = read_results(self.samples, variant, template, self.results_file)
         results.sort()
+        sample_size = len(results)
 
-        avg_time = total_elapsed / sample_size
+        avg_time = sum([res.elapsed for res in results]) / sample_size
 
         x = np.arange(0, sample_size)
         y = [res.score for res in results]
@@ -299,7 +271,7 @@ class TM(Algorithm):
         handles = [
                 plt.Rectangle((0,0),1,1, color=Color.BLUE.value),
                 plt.Rectangle((0,0),1,1, color=Color.RED.value),
-                plt.Rectangle((0,0),1,1, hatch=Hatching.DOTTED.value)
+                plt.Rectangle((0,0),1,1, fill=None, hatch=Hatching.DOTTED.value)
         ]
         labels = ['same state as template', 'different state than template', 'dirty']
         plt.legend(handles, labels)
@@ -344,7 +316,7 @@ class FM(Algorithm):
         except FileExistsError:
             pass
 
-        template.load(grayscale=True, scaling=self.scaling)
+        template.load(grayscale=True, scaling=self.scaling, adjust=self.adjust)
 
         if variant == 'SURF':
             ft = eval('cv.xfeatures2d.SURF_create()')
@@ -363,6 +335,8 @@ class FM(Algorithm):
 
             correspondence_pixmap = cropped_pixmap.copy()
             scene = cv.cvtColor(cropped_pixmap, cv.COLOR_RGB2GRAY)
+            if self.adjust:
+                scene = adjust_brightness_contrast(scene)
 
             t0 = time()
             templ_kp, templ_des = ft.detectAndCompute(template.pixmap, None)
@@ -400,29 +374,12 @@ class FM(Algorithm):
 
     def evaluate(self, full_path, variant, template):
         super().evaluate(full_path, variant, template)
-        results = []
-        total_elapsed = 0
 
-        with open(self.results_file, 'r') as f:
-            for line in f:
-                words = line.split()
-                id = words[0]
-
-                state = next((s.state for s in self.samples if s.id == id), None)
-                if state is TemplateState.UNCERTAIN:
-                    continue
-
-                purity = next((s.purity for s in self.samples if s.id == id), None)
-                score = float(words[1])
-                elapsed = float(words[2])
-                total_elapsed += elapsed
-                result = Result(id, score, elapsed, state, template.state, purity)
-                results.append(result)
-
-        sample_size = len(results)
+        results = read_results(self.samples, variant, template, self.results_file)
         results.sort()
+        sample_size = len(results)
 
-        avg_time = total_elapsed / sample_size
+        avg_time = sum([res.elapsed for res in results]) / sample_size
 
         x = np.arange(0, sample_size)
         y = [res.score for res in results]
@@ -471,7 +428,7 @@ class FM(Algorithm):
         handles = [
                 plt.Rectangle((0,0),1,1, color=Color.BLUE.value),
                 plt.Rectangle((0,0),1,1, color=Color.RED.value),
-                plt.Rectangle((0,0),1,1, hatch=Hatching.DOTTED.value)
+                plt.Rectangle((0,0),1,1, fill=None, hatch=Hatching.DOTTED.value)
         ]
         labels = ['same state as template', 'different state than template', 'dirty']
         plt.legend(handles, labels)
