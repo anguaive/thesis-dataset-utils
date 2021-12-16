@@ -111,7 +111,7 @@ def gen_job_aggr_scatter(path, encoded, templates):
         ax.set_ylabel('')
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_ylim((0, max(1.1 * max(y), 1)))
+        ax.set_ylim((min(0, min(y)), max(1.1 * max(y), 1)))
         plt.title(f'{t.tray}/{t.part}', fontsize=10)
         plt.suptitle(encoded)
 

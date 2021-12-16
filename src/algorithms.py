@@ -336,7 +336,7 @@ class FM(Algorithm):
             correspondence_pixmap = cropped_pixmap.copy()
             scene = cv.cvtColor(cropped_pixmap, cv.COLOR_RGB2GRAY)
             if self.adjust:
-                scene = adjust_brightness_contrast(scene)
+                scene = adjust_contrast_brightness(scene)
 
             t0 = time()
             templ_kp, templ_des = ft.detectAndCompute(template.pixmap, None)
